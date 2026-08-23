@@ -1,11 +1,14 @@
 import datetime
+import logging
 
 from telegram import MessageOriginHiddenUser, MessageOriginUser, Update
 from telegram.ext import ContextTypes
 
 from bot import db
-from bot.config import ADMIN_TELEGRAM_ID, PLAYER_CODES, normalize_code
+from bot.config import ADMIN_TELEGRAM_ID, PLAYER_CODES, TIMEZONE, normalize_code
 from bot.parser import parse_flashback_message
+
+logger = logging.getLogger(__name__)
 
 HELP_TEXT = (
     "Comandos disponibles:\n"
@@ -13,6 +16,7 @@ HELP_TEXT = (
     "(Se, Mb, Na, Ra, ²H)\n"
     "/tabla [año] — tabla de posiciones (default: año actual)\n"
     "/pendientes [código] — semanas que te faltan jugar, con el link\n"
+    "/chatid — id de este chat (para configurar avisos)\n"
     "/ayuda — este mensaje\n\n"
     "Para cargar un puntaje, simplemente pegá el mensaje que comparte el "
     "juego de Flashback en el grupo."
@@ -198,3 +202,34 @@ async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(HELP_TEXT)
+
+
+async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    await update.effective_message.reply_text(f"Chat id: {chat.id}")
+
+
+async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # No visible message — just server-side logging, so chat ids are
+    # recoverable from journalctl without anyone typing /chatid.
+    chat = update.effective_chat
+    new_member = update.my_chat_member.new_chat_member
+    logger.info(
+        "Chat member update: chat_id=%s title=%r type=%s status=%s",
+        chat.id,
+        chat.title,
+        chat.type,
+        new_member.status,
+    )
+
+
+async def announce_new_edition(context: ContextTypes.DEFAULT_TYPE) -> None:
+    # The share message's date is the puzzle's date (e.g. Saturday), but the
+    # NYT interactive URL for that same puzzle is dated the day before.
+    today = datetime.datetime.now(TIMEZONE).date()
+    url = db.interactive_url(today.isoformat())
+    pretty = today.strftime("%d/%m")
+    await context.bot.send_message(
+        chat_id=context.job.chat_id,
+        text=f"🔮 Salió el Flashback de esta semana ({pretty}). Jugalo acá:\n{url}",
+    )

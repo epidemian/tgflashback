@@ -18,6 +18,7 @@ pip install -r requirements.txt
 ```
 TELEGRAM_TOKEN=...          # token de @BotFather
 ADMIN_TELEGRAM_ID=...       # tu user id numérico (hablale a @userinfobot)
+TARGET_CHAT_ID=...          # opcional: chat donde avisar los sábados 9am (ver /chatid)
 DB_PATH=flashback.db        # opcional
 ```
 
@@ -51,4 +52,11 @@ python -m bot.main
   victorias).
 - `/pendientes [código]` — semanas que le faltan a ese jugador, con el link
   para jugarlas.
+- `/chatid` — id del chat actual, para configurar `TARGET_CHAT_ID`.
 - `/ayuda` — resumen de comandos.
+
+## Aviso semanal
+
+Si `TARGET_CHAT_ID` está configurado, todos los sábados a las 9am (hora
+Argentina) el bot manda un mensaje con el link a la nueva edición. Ojo: la
+URL de NYT usa la fecha del día anterior (viernes) a la del puzzle.

@@ -1,10 +1,17 @@
+import datetime
 import logging
 
 from telegram import BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    ChatMemberHandler,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
 from bot import db, handlers
-from bot.config import TELEGRAM_TOKEN
+from bot.config import TARGET_CHAT_ID, TELEGRAM_TOKEN, TIMEZONE
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -37,11 +44,30 @@ def main() -> None:
     application.add_handler(CommandHandler("tabla", handlers.cmd_tabla))
     application.add_handler(CommandHandler("pendientes", handlers.cmd_pendientes))
     application.add_handler(CommandHandler("ayuda", handlers.cmd_ayuda))
+    application.add_handler(CommandHandler("chatid", handlers.cmd_chatid))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_text_message)
     )
+    application.add_handler(
+        ChatMemberHandler(handlers.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
+    )
 
-    application.run_polling(allowed_updates=["message"])
+    if TARGET_CHAT_ID is not None:
+        # days: 0-6 = sunday-saturday (PTB convention). Saturday = 6.
+        application.job_queue.run_daily(
+            handlers.announce_new_edition,
+            time=datetime.time(9, 0, tzinfo=TIMEZONE),
+            days=(6,),
+            chat_id=TARGET_CHAT_ID,
+            name="announce_new_edition",
+        )
+    else:
+        logging.getLogger(__name__).warning(
+            "TARGET_CHAT_ID no está configurado: el aviso semanal no se va a mandar. "
+            "Usá /chatid en el grupo y agregalo al .env."
+        )
+
+    application.run_polling(allowed_updates=["message", "my_chat_member"])
 
 
 if __name__ == "__main__":
