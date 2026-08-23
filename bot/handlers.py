@@ -2,6 +2,7 @@ import datetime
 import io
 import logging
 
+from dateutil import parser as dateutil_parser
 from telegram import MessageOriginHiddenUser, MessageOriginUser, Update
 from telegram.ext import ContextTypes
 
@@ -139,6 +140,50 @@ async def cmd_vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     db.link_player(code, target.id, target.username)
     await message.reply_text(f"Listo, vinculé a {target.first_name} como {code}.")
+
+
+async def cmd_puntaje(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    user = update.effective_user
+
+    if ADMIN_TELEGRAM_ID is None or user is None or user.id != ADMIN_TELEGRAM_ID:
+        await message.reply_text("Este comando es solo para el admin.")
+        return
+
+    if len(context.args) != 3:
+        await message.reply_text(
+            "Uso: /puntaje <código> <fecha DD/MM/YYYY> <puntaje>. "
+            "Ejemplo: /puntaje Se 23/08/2026 42"
+        )
+        return
+
+    code_arg, date_arg, score_arg = context.args
+
+    code = normalize_code(code_arg)
+    if code is None:
+        await message.reply_text(
+            f"Código inválido. Los códigos válidos son: {', '.join(PLAYER_CODES)}"
+        )
+        return
+
+    try:
+        puzzle_date = dateutil_parser.parse(date_arg, dayfirst=True).date().isoformat()
+    except (ValueError, OverflowError):
+        await message.reply_text("Fecha inválida. Usá el formato DD/MM/YYYY.")
+        return
+
+    try:
+        score = int(score_arg)
+    except ValueError:
+        await message.reply_text("El puntaje tiene que ser un número entero.")
+        return
+
+    db.upsert_score(player_code=code, puzzle_date=puzzle_date, score=score)
+
+    pretty_date = datetime.date.fromisoformat(puzzle_date).strftime("%d/%m/%Y")
+    await message.reply_text(
+        f"✅ {code} — {pretty_date}: {score} puntos registrados (por admin)."
+    )
 
 
 def _render_tabla(year: int) -> tuple[str, bytes] | None:

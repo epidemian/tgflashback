@@ -41,6 +41,7 @@ def main() -> None:
 
     application.add_handler(CommandHandler("soy", handlers.cmd_soy))
     application.add_handler(CommandHandler("vincular", handlers.cmd_vincular))
+    application.add_handler(CommandHandler("puntaje", handlers.cmd_puntaje))
     application.add_handler(CommandHandler("tabla", handlers.cmd_tabla))
     application.add_handler(CommandHandler("pendientes", handlers.cmd_pendientes))
     application.add_handler(CommandHandler("ayuda", handlers.cmd_ayuda))
