@@ -3,12 +3,15 @@
 Idempotent: reruns just upsert the same (player_code, puzzle_date) rows.
 
 Date anchoring:
-- `Puntajes` (2026): the `Missing Se` sheet lists the real date for each week
-  index in the same row order (row 2 of both sheets = week index 1, starting
-  2026-01-02), so we zip the two sheets by row position.
+- `Puntajes` (2026): the `Missing Se` sheet lists a date for each week index
+  in the same row order (row 2 of both sheets = week index 1), so we zip the
+  two sheets by row position. Those recorded dates are all Fridays, but the
+  group actually plays/shares on Saturday (confirmed against a real
+  NYT-parsed "Flashback for ..." message) — so we add one day to land on the
+  real play date, e.g. row 2's recorded 2026-01-02 (Fri) -> 2026-01-03 (Sat).
 - `Puntajes2025`: has no matching "Missing" sheet with real dates. We assume
   its last row (Fecha=18) is the week immediately before `Puntajes` row 1
-  (2026-01-02 - 7 days = 2025-12-26) and step back 7 days per row from there.
+  (2026-01-03 - 7 days = 2025-12-27) and step back 7 days per row from there.
   This is an approximation accepted in absence of an exact recorded date.
 """
 
@@ -21,7 +24,9 @@ from bot.config import PLAYER_CODES
 
 XLSX_PATH = "Chanchullo Flashback.xlsx"
 
-PUNTAJES_2026_ANCHOR = datetime.date(2026, 1, 2)  # Missing Se row 2 (Fecha=1)
+DAY_CORRECTION = datetime.timedelta(days=1)  # sheet records Friday; real play day is Saturday
+
+PUNTAJES_2026_ANCHOR = datetime.date(2026, 1, 2) + DAY_CORRECTION  # Missing Se row 2 (Fecha=1)
 PUNTAJES_2025_LAST_ROW_DATE = PUNTAJES_2026_ANCHOR - datetime.timedelta(days=7)
 
 
@@ -50,7 +55,7 @@ def import_puntajes_2026(wb) -> int:
         puzzle_date = m_row[0]
         if not isinstance(puzzle_date, datetime.datetime):
             continue
-        puzzle_date_iso = puzzle_date.date().isoformat()
+        puzzle_date_iso = (puzzle_date.date() + DAY_CORRECTION).isoformat()
 
         for col_idx, code in columns.items():
             score = p_row[col_idx - 1]
