@@ -8,6 +8,8 @@ from bot.config import TELEGRAM_TOKEN
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+# httpx logs the full request URL at INFO level, which includes the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def main() -> None:
