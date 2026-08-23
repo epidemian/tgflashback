@@ -168,6 +168,23 @@ def get_standings(year: int) -> list[dict]:
     return standings
 
 
+def get_weekly_scores(year: int) -> dict[str, list[tuple[str, int]]]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT player_code, puzzle_date, score FROM scores "
+            "WHERE strftime('%Y', puzzle_date) = ? ORDER BY puzzle_date",
+            (str(year),),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    weekly: dict[str, list[tuple[str, int]]] = {code: [] for code in PLAYER_CODES}
+    for row in rows:
+        weekly[row["player_code"]].append((row["puzzle_date"], row["score"]))
+    return weekly
+
+
 def get_played_dates() -> list[str]:
     conn = get_connection()
     try:

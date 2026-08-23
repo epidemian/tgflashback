@@ -48,8 +48,9 @@ python -m bot.main
 - `/vincular <código>` (respondiendo al mensaje de la persona, solo admin) —
   vincula a otra persona manualmente. Pensado para el alta inicial de los 5
   jugadores.
-- `/tabla [año]` — tabla de posiciones (suma, promedio, semanas jugadas,
-  victorias).
+- `/tabla [año]` — gráfico con la evolución semanal de puntajes de cada
+  jugador, más la tabla de posiciones (suma, promedio, semanas jugadas,
+  victorias) como pie de foto.
 - `/pendientes [código]` — semanas que le faltan a ese jugador, con el link
   para jugarlas.
 - `/chatid` — id del chat actual, para configurar `TARGET_CHAT_ID`.

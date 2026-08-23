@@ -1,10 +1,11 @@
 import datetime
+import io
 import logging
 
 from telegram import MessageOriginHiddenUser, MessageOriginUser, Update
 from telegram.ext import ContextTypes
 
-from bot import db
+from bot import chart, db
 from bot.config import ADMIN_TELEGRAM_ID, PLAYER_CODES, TIMEZONE, normalize_code
 from bot.parser import parse_flashback_message
 
@@ -163,8 +164,15 @@ async def cmd_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"{row['played']:>5}{row['wins']:>6}"
         )
 
-    text = f"Tabla de posiciones {year}\n<pre>{chr(10).join(lines)}</pre>"
-    await message.reply_html(text)
+    caption = f"Tabla de posiciones {year}\n<pre>{chr(10).join(lines)}</pre>"
+
+    weekly_scores = db.get_weekly_scores(year)
+    png_bytes = chart.render_standings_chart(year, weekly_scores)
+    await message.reply_photo(
+        photo=io.BytesIO(png_bytes),
+        caption=caption,
+        parse_mode="HTML",
+    )
 
 
 async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
