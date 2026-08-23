@@ -141,20 +141,10 @@ async def cmd_vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await message.reply_text(f"Listo, vinculé a {target.first_name} como {code}.")
 
 
-async def cmd_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    year = datetime.date.today().year
-    if context.args:
-        try:
-            year = int(context.args[0])
-        except ValueError:
-            await message.reply_text("Uso: /tabla [año]")
-            return
-
+def _render_tabla(year: int) -> tuple[str, bytes] | None:
     standings = db.get_standings(year)
     if all(row["played"] == 0 for row in standings):
-        await message.reply_text(f"No hay puntajes cargados para {year}.")
-        return
+        return None
 
     header = f"{'Jugador':<8}{'Suma':>6}{'Prom':>7}{'Jug':>5}{'Vict':>6}"
     lines = [header, "-" * len(header)]
@@ -168,6 +158,25 @@ async def cmd_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     weekly_scores = db.get_weekly_scores(year)
     png_bytes = chart.render_standings_chart(year, weekly_scores)
+    return caption, png_bytes
+
+
+async def cmd_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    year = datetime.date.today().year
+    if context.args:
+        try:
+            year = int(context.args[0])
+        except ValueError:
+            await message.reply_text("Uso: /tabla [año]")
+            return
+
+    rendered = _render_tabla(year)
+    if rendered is None:
+        await message.reply_text(f"No hay puntajes cargados para {year}.")
+        return
+
+    caption, png_bytes = rendered
     await message.reply_photo(
         photo=io.BytesIO(png_bytes),
         caption=caption,
@@ -241,3 +250,13 @@ async def announce_new_edition(context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id=context.job.chat_id,
         text=f"🔮 Salió el Flashback de esta semana ({pretty}). Jugalo acá:\n{url}",
     )
+
+    rendered = _render_tabla(today.year)
+    if rendered is not None:
+        caption, png_bytes = rendered
+        await context.bot.send_photo(
+            chat_id=context.job.chat_id,
+            photo=io.BytesIO(png_bytes),
+            caption=caption,
+            parse_mode="HTML",
+        )
