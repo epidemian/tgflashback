@@ -1,6 +1,6 @@
 import datetime
 
-from telegram import Update
+from telegram import MessageOriginHiddenUser, MessageOriginUser, Update
 from telegram.ext import ContextTypes
 
 from bot import db
@@ -103,10 +103,32 @@ async def cmd_vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    target = message.reply_to_message.from_user if message.reply_to_message else None
+    replied = message.reply_to_message
+    if replied is None:
+        await message.reply_text(
+            "Tenés que responder (reply) al mensaje de la persona que querés "
+            "vincular (puede ser un mensaje reenviado de ella)."
+        )
+        return
+
+    origin = replied.forward_origin
+    if isinstance(origin, MessageOriginUser):
+        # Forwarded message: link the original sender, not whoever forwarded it.
+        target = origin.sender_user
+    elif isinstance(origin, MessageOriginHiddenUser):
+        await message.reply_text(
+            f"'{origin.sender_user_name}' tiene oculto quién reenvía sus mensajes "
+            "en su configuración de privacidad de Telegram, así que no puedo "
+            "obtener su usuario desde acá. Pedile que te escriba directamente o "
+            "que corra /soy él mismo."
+        )
+        return
+    else:
+        target = replied.from_user
+
     if target is None:
         await message.reply_text(
-            "Tenés que responder (reply) al mensaje de la persona que querés vincular."
+            "No pude identificar a la persona de ese mensaje."
         )
         return
 
