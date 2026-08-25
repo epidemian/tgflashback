@@ -202,7 +202,7 @@ def _render_tabla(year: int) -> tuple[str, bytes] | None:
     caption = f"Tabla de posiciones {year}\n<pre>{chr(10).join(lines)}</pre>"
 
     weekly_scores = db.get_weekly_scores(year)
-    png_bytes = chart.render_standings_chart(year, weekly_scores)
+    png_bytes = chart.render_scores_heatmap(year, weekly_scores)
     return caption, png_bytes
 
 

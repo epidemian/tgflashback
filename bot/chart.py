@@ -7,8 +7,9 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
-from matplotlib.ticker import MaxNLocator
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from matplotlib.patches import Rectangle
 
 from bot.config import PLAYER_CODES
 
@@ -18,49 +19,28 @@ SURFACE = "#fcfcfb"
 INK_PRIMARY = "#0b0b0b"
 INK_SECONDARY = "#52514e"
 INK_MUTED = "#898781"
-GRID = "#e1e0d9"
-BASELINE = "#c3c2b7"
+UNPLAYED = "#e1e0d9"  # no score: uncolored gray, no number
 
-# Fixed hue order (slots 1-5): blue, orange, aqua, yellow, magenta.
-CATEGORICAL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+# Score heatmap: 0 -> red, MAX_SCORE (perfect) -> green.
+SCORE_CMAP = plt.get_cmap("RdYlGn")
+MAX_SCORE = 28
 
-BAR_SLOT_WIDTH = 0.72
-WEEK_WIDTH_IN = 0.42  # figure inches per week
+CELL_WIDTH_IN = 0.55  # figure inches per week column
+CELL_HEIGHT_IN = 0.6  # figure inches per player row
 MAX_FIG_WIDTH_IN = 32
-MIN_SEGMENT_HEIGHT_FOR_LABEL = 1.5  # score points; thinner segments skip the code label
 
 
 def _text_color(hex_color: str) -> str:
     r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    return _text_color_rgb(r, g, b)
+
+
+def _text_color_rgb(r: float, g: float, b: float) -> str:
+    # Accepts either 0-255 ints or 0-1 floats.
+    if r <= 1 and g <= 1 and b <= 1:
+        r, g, b = r * 255, g * 255, b * 255
     luminance = 0.299 * r + 0.587 * g + 0.114 * b
     return INK_PRIMARY if luminance > 140 else "#ffffff"
-
-
-def _stack_segments(
-    entries: list[tuple[str, int]],
-) -> list[tuple[str, float, float, float, float, int]]:
-    """Lay out a week's scores as bands on a shared 0..max(score) axis: each
-    band spans from the previous (lower) score up to this player's own score,
-    so a band's top edge is that player's real score, not a running sum.
-    Ties share a band, split side by side instead of stacked."""
-    ordered = sorted(entries, key=lambda ce: ce[1])
-    groups: list[tuple[int, list[str]]] = []
-    for code, score in ordered:
-        if groups and groups[-1][0] == score:
-            groups[-1][1].append(code)
-        else:
-            groups.append((score, [code]))
-
-    segments = []
-    prev_score = 0.0
-    for score, codes in groups:
-        height = score - prev_score
-        seg_width = BAR_SLOT_WIDTH / len(codes)
-        for j, code in enumerate(codes):
-            x0 = -BAR_SLOT_WIDTH / 2 + j * seg_width
-            segments.append((code, x0, seg_width, prev_score, height, len(codes)))
-        prev_score = score
-    return segments
 
 
 def _bucket_by_iso_week(
@@ -95,46 +75,47 @@ def _bucket_by_iso_week(
     return dates, scores_by_date
 
 
-def render_standings_chart(year: int, weekly_scores: dict[str, list[tuple[str, int]]]) -> bytes:
+def render_scores_heatmap(year: int, weekly_scores: dict[str, list[tuple[str, int]]]) -> bytes:
+    """One row per player, one column per week; each cell shows that week's
+    score colored on a fixed 0..MAX_SCORE red-to-green scale. Unplayed weeks
+    are left an uncolored gray cell with no number."""
     dates, scores_by_date = _bucket_by_iso_week(weekly_scores)
+    n_weeks = len(dates)
+    n_players = len(PLAYER_CODES)
 
-    fig_width = min(MAX_FIG_WIDTH_IN, max(9.0, len(dates) * WEEK_WIDTH_IN))
-    fig, ax = plt.subplots(figsize=(fig_width, 5), dpi=200)
+    fig_width = min(MAX_FIG_WIDTH_IN, max(6.0, n_weeks * CELL_WIDTH_IN))
+    fig_height = n_players * CELL_HEIGHT_IN + 1.6
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=200)
     fig.patch.set_facecolor(SURFACE)
     ax.set_facecolor(SURFACE)
 
-    color_by_code = {code: CATEGORICAL[i % len(CATEGORICAL)] for i, code in enumerate(PLAYER_CODES)}
-
-    for idx, d in enumerate(dates):
-        entries = [
-            (code, scores_by_date[code][d]) for code in PLAYER_CODES if d in scores_by_date[code]
-        ]
-        for code, x0, seg_width, y0, height, tie_count in _stack_segments(entries):
-            color = color_by_code[code]
-            ax.bar(
-                idx + x0 + seg_width / 2,
-                height,
-                width=seg_width * 0.96,
-                bottom=y0,
-                color=color,
-                edgecolor=SURFACE,
-                linewidth=1,
-                zorder=3,
+    for row_idx, code in enumerate(PLAYER_CODES):
+        for col_idx, d in enumerate(dates):
+            score = scores_by_date[code].get(d)
+            if score is None:
+                color = UNPLAYED
+            else:
+                color = SCORE_CMAP(max(0.0, min(1.0, score / MAX_SCORE)))
+            ax.add_patch(
+                Rectangle(
+                    (col_idx, row_idx),
+                    1,
+                    1,
+                    facecolor=color,
+                    edgecolor=SURFACE,
+                    linewidth=1.5,
+                )
             )
-            # A 3+ way tie splits the band too thin for a legible label; the
-            # legend + color still identify who's who.
-            fontsize = {1: 7.5, 2: 6.5}.get(tie_count)
-            if fontsize and height >= MIN_SEGMENT_HEIGHT_FOR_LABEL:
+            if score is not None:
                 ax.text(
-                    idx + x0 + seg_width / 2,
-                    y0 + height / 2,
-                    code,
+                    col_idx + 0.5,
+                    row_idx + 0.5,
+                    str(score),
                     ha="center",
                     va="center",
-                    fontsize=fontsize,
+                    fontsize=8.5,
                     fontweight="bold",
-                    color=_text_color(color),
-                    zorder=4,
+                    color=_text_color_rgb(*color[:3]),
                 )
 
     ax.set_title(
@@ -146,46 +127,45 @@ def render_standings_chart(year: int, weekly_scores: dict[str, list[tuple[str, i
         pad=14,
     )
 
-    ax.grid(True, axis="y", color=GRID, linewidth=1, zorder=0)
-    ax.grid(False, axis="x")
-    for name, spine in ax.spines.items():
-        if name == "bottom":
-            spine.set_color(BASELINE)
-            spine.set_linewidth(1)
-        else:
-            spine.set_visible(False)
+    ax.set_xlim(0, n_weeks)
+    ax.set_ylim(0, n_players)
+    ax.invert_yaxis()
 
-    ax.tick_params(axis="x", colors=INK_MUTED, labelsize=9, length=0)
-    ax.tick_params(axis="y", colors=INK_MUTED, labelsize=9, length=0)
+    ax.set_yticks([i + 0.5 for i in range(n_players)])
+    ax.set_yticklabels(PLAYER_CODES)
 
     # Only label the first week of each month, else the x-axis is just as
-    # cluttered as the old line chart was.
+    # cluttered as a per-week label would be.
     tick_positions = []
     tick_labels = []
     last_month = None
     for idx, d in enumerate(dates):
         month = datetime.date.fromisoformat(d).month
         if month != last_month:
-            tick_positions.append(idx)
+            tick_positions.append(idx + 0.5)
             tick_labels.append(datetime.date.fromisoformat(d).strftime("%b"))
             last_month = month
     ax.set_xticks(tick_positions)
     ax.set_xticklabels(tick_labels)
-    ax.set_xlim(-0.5, len(dates) - 0.5)
 
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+    ax.tick_params(axis="both", colors=INK_MUTED, labelsize=9, length=0)
+    ax.tick_params(axis="y", labelsize=10, labelcolor=INK_PRIMARY)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-    legend_handles = [Patch(facecolor=color_by_code[code], label=code) for code in PLAYER_CODES]
-    ax.legend(
-        handles=legend_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.1),
-        ncol=len(PLAYER_CODES),
-        frameon=False,
-        fontsize=10,
-        labelcolor=INK_SECONDARY,
-        handlelength=1.5,
+    colorbar = fig.colorbar(
+        ScalarMappable(norm=Normalize(vmin=0, vmax=MAX_SCORE), cmap=SCORE_CMAP),
+        ax=ax,
+        orientation="horizontal",
+        location="bottom",
+        pad=0.25 if n_players <= 3 else 0.15,
+        fraction=0.06,
+        aspect=40,
+        label=f"Puntaje (0-{MAX_SCORE})",
     )
+    colorbar.ax.tick_params(colors=INK_MUTED, labelsize=8, length=0)
+    colorbar.set_label(f"Puntaje (0-{MAX_SCORE})", color=INK_SECONDARY, fontsize=9)
+    colorbar.outline.set_visible(False)
 
     fig.tight_layout(rect=(0, 0, 1, 1))
 
