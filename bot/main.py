@@ -73,7 +73,9 @@ def main() -> None:
             "Usá /chatid en el grupo y agregalo al .env."
         )
 
-    application.run_polling(allowed_updates=["message", "my_chat_member"])
+    application.run_polling(
+        allowed_updates=["message", "my_chat_member", "callback_query"]
+    )
 
 
 if __name__ == "__main__":
