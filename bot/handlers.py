@@ -3,10 +3,16 @@ import io
 import logging
 
 from dateutil import parser as dateutil_parser
-from telegram import MessageOriginHiddenUser, MessageOriginUser, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MessageOriginHiddenUser,
+    MessageOriginUser,
+    Update,
+)
 from telegram.ext import ContextTypes
 
-from bot import chart, db
+from bot import chart, db, ocr
 from bot.config import ADMIN_TELEGRAM_ID, PLAYER_CODES, TIMEZONE, normalize_code
 from bot.parser import parse_flashback_message
 
@@ -21,7 +27,9 @@ HELP_TEXT = (
     "/chatid — id de este chat (para configurar avisos)\n"
     "/ayuda — este mensaje\n\n"
     "Para cargar un puntaje, simplemente pegá el mensaje que comparte el "
-    "juego de Flashback en el grupo."
+    "juego de Flashback en el grupo, o mandá una captura de pantalla del "
+    "resultado (te voy a preguntar a qué semana corresponde, porque la "
+    "captura no dice la fecha)."
 )
 
 
@@ -57,6 +65,118 @@ async def on_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text(
         f"✅ {player['code']} — {pretty_date}: {result.score} puntos registrados."
     )
+
+
+def _infer_current_puzzle_date(when: datetime.datetime) -> str:
+    # New editions drop on Saturday (weekday() == 5), so "this week's
+    # puzzle" is the most recent Saturday on or before `when`.
+    days_since_saturday = (when.weekday() - 5) % 7
+    saturday = when.date() - datetime.timedelta(days=days_since_saturday)
+    return saturday.isoformat()
+
+
+async def on_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if message is None or not message.photo:
+        return
+
+    photo = message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    image_bytes = bytes(await file.download_as_bytearray())
+
+    score = ocr.extract_score(image_bytes)
+    if score is None:
+        # Doesn't look like a Flashback score screenshot — stay quiet.
+        return
+
+    user = update.effective_user
+    player = db.get_player_by_telegram_id(user.id) if user else None
+    if player is None:
+        await message.reply_text(
+            "No te tengo vinculado a ningún jugador todavía. "
+            "Usá /soy <código> (Se, Mb, Na, Ra, ²H) para vincularte, "
+            "o pedile a un admin que lo haga con /vincular."
+        )
+        return
+
+    code = player["code"]
+    sent_at = message.date.astimezone(TIMEZONE)
+    current_puzzle_date = _infer_current_puzzle_date(sent_at)
+
+    candidates = set(db.get_pending(code))
+    if not db.has_score(code, current_puzzle_date):
+        candidates.add(current_puzzle_date)
+    sorted_candidates = sorted(candidates, reverse=True)[:10]
+
+    if not sorted_candidates:
+        await message.reply_text(
+            f"Encontré un puntaje de {score} puntos en la imagen, pero no "
+            f"tengo ninguna semana pendiente para {code}. Usá /puntaje "
+            f"{code} <fecha DD/MM/YYYY> {score} para cargarlo manualmente."
+        )
+        return
+
+    uid = user.id
+    buttons = [
+        [
+            InlineKeyboardButton(
+                datetime.date.fromisoformat(d).strftime("%d/%m/%Y"),
+                callback_data=f"flb_pick:{d}:{score}:{uid}",
+            )
+        ]
+        for d in sorted_candidates
+    ]
+    buttons.append([InlineKeyboardButton("Cancelar", callback_data=f"flb_cancel:{uid}")])
+
+    await message.reply_text(
+        f"Encontré un puntaje de {score} puntos en la imagen para {code}, "
+        "pero la captura no dice la fecha. ¿A qué semana corresponde?",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def on_photo_score_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    data = query.data or ""
+
+    if data.startswith("flb_cancel:"):
+        _, uid_str = data.split(":", 1)
+        if str(query.from_user.id) != uid_str:
+            await query.answer("Este botón no es para vos.", show_alert=True)
+            return
+        await query.answer()
+        await query.edit_message_text("Cancelado.")
+        return
+
+    if data.startswith("flb_pick:"):
+        _, puzzle_date, score_str, uid_str = data.split(":", 3)
+        if str(query.from_user.id) != uid_str:
+            await query.answer("Este botón no es para vos.", show_alert=True)
+            return
+
+        player = db.get_player_by_telegram_id(query.from_user.id)
+        if player is None:
+            await query.answer()
+            await query.edit_message_text(
+                "Ya no estás vinculado a ningún jugador, no pude guardar el puntaje."
+            )
+            return
+
+        score = int(score_str)
+        db.upsert_score(
+            player_code=player["code"],
+            puzzle_date=puzzle_date,
+            score=score,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+        )
+        pretty_date = datetime.date.fromisoformat(puzzle_date).strftime("%d/%m/%Y")
+        await query.answer()
+        await query.edit_message_text(
+            f"✅ {player['code']} — {pretty_date}: {score} puntos registrados."
+        )
+        return
+
+    await query.answer()
 
 
 async def cmd_soy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

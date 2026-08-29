@@ -13,6 +13,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Para leer puntajes de capturas de pantalla también hace falta el binario de
+Tesseract instalado en el sistema (no alcanza con el paquete de Python):
+
+```bash
+sudo apt install tesseract-ocr
+```
+
 `.env`:
 
 ```
@@ -44,6 +51,12 @@ python -m bot.main
 - Pegar el mensaje que comparte el juego de Flashback → el bot detecta fecha
   y puntaje y lo guarda para quien lo mandó (tiene que estar vinculado, ver
   abajo).
+- Mandar una captura de pantalla del resultado ("You scored X of Y points")
+  → el bot lee el puntaje por OCR. La captura no incluye la fecha (siempre
+  dice "this week's Flashback"), así que el bot ofrece un selector con las
+  semanas pendientes del jugador (más la semana actual) para elegir a cuál
+  corresponde. Si la imagen no parece una captura de Flashback, el bot no
+  responde nada.
 - `/soy <código>` — vincula tu usuario de Telegram a tu código de jugador.
 - `/vincular <código>` (respondiendo al mensaje de la persona, solo admin) —
   vincula a otra persona manualmente. Pensado para el alta inicial de los 5

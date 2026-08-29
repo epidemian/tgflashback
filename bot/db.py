@@ -196,6 +196,18 @@ def get_played_dates() -> list[str]:
     return [row["puzzle_date"] for row in rows]
 
 
+def has_score(code: str, puzzle_date: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM scores WHERE player_code = ? AND puzzle_date = ?",
+            (code, puzzle_date),
+        ).fetchone()
+    finally:
+        conn.close()
+    return row is not None
+
+
 def get_pending(code: str) -> list[str]:
     conn = get_connection()
     try:

@@ -4,6 +4,7 @@ import logging
 from telegram import BotCommand
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     ChatMemberHandler,
     CommandHandler,
     MessageHandler,
@@ -48,6 +49,10 @@ def main() -> None:
     application.add_handler(CommandHandler("chatid", handlers.cmd_chatid))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_text_message)
+    )
+    application.add_handler(MessageHandler(filters.PHOTO, handlers.on_photo_message))
+    application.add_handler(
+        CallbackQueryHandler(handlers.on_photo_score_callback, pattern=r"^flb_(pick|cancel):")
     )
     application.add_handler(
         ChatMemberHandler(handlers.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
