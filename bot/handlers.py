@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 
 from bot import chart, db, ocr
 from bot.config import ADMIN_TELEGRAM_ID, PLAYER_CODES, TIMEZONE, normalize_code
-from bot.parser import parse_flashback_message
+from bot.parser import parse_flashback_message, parse_flashback_screenshot
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,9 @@ HELP_TEXT = (
     "/chatid — id de este chat (para configurar avisos)\n"
     "/ayuda — este mensaje\n\n"
     "Para cargar un puntaje, simplemente pegá el mensaje que comparte el "
-    "juego de Flashback en el grupo, o mandá una captura de pantalla del "
-    "resultado (te voy a preguntar a qué semana corresponde, porque la "
-    "captura no dice la fecha)."
+    "juego de Flashback en el grupo, mandá una captura de pantalla del "
+    "resultado, o pegá el texto de esa captura (en estos dos últimos casos "
+    "te voy a preguntar a qué semana corresponde, porque no dice la fecha)."
 )
 
 
@@ -39,32 +39,39 @@ async def on_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     result = parse_flashback_message(message.text)
-    if result is None:
-        return
+    if result is not None:
+        user = update.effective_user
+        player = db.get_player_by_telegram_id(user.id) if user else None
+        if player is None:
+            await message.reply_text(
+                "No te tengo vinculado a ningún jugador todavía. "
+                "Usá /soy <código> (Se, Mb, Na, Ra, ²H) para vincularte, "
+                "o pedile a un admin que lo haga con /vincular."
+            )
+            return
 
-    user = update.effective_user
-    player = db.get_player_by_telegram_id(user.id) if user else None
-    if player is None:
+        db.upsert_score(
+            player_code=player["code"],
+            puzzle_date=result.puzzle_date,
+            score=result.score,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            message_id=message.message_id,
+            raw_text=message.text,
+        )
+
+        pretty_date = datetime.date.fromisoformat(result.puzzle_date).strftime("%d/%m/%Y")
         await message.reply_text(
-            "No te tengo vinculado a ningún jugador todavía. "
-            "Usá /soy <código> (Se, Mb, Na, Ra, ²H) para vincularte, "
-            "o pedile a un admin que lo haga con /vincular."
+            f"✅ {player['code']} — {pretty_date}: {result.score} puntos registrados."
         )
         return
 
-    db.upsert_score(
-        player_code=player["code"],
-        puzzle_date=result.puzzle_date,
-        score=result.score,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        message_id=message.message_id,
-        raw_text=message.text,
-    )
+    # Not the share-text format — maybe it's the OCR'd text of the in-app
+    # "you scored" summary card, pasted directly instead of as a screenshot.
+    score = parse_flashback_screenshot(message.text)
+    if score is None:
+        return
 
-    pretty_date = datetime.date.fromisoformat(result.puzzle_date).strftime("%d/%m/%Y")
-    await message.reply_text(
-        f"✅ {player['code']} — {pretty_date}: {result.score} puntos registrados."
-    )
+    await _offer_score_date_picker(message, update.effective_user, score)
 
 
 def _infer_current_puzzle_date(when: datetime.datetime) -> str:
@@ -75,21 +82,8 @@ def _infer_current_puzzle_date(when: datetime.datetime) -> str:
     return saturday.isoformat()
 
 
-async def on_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    if message is None or not message.photo:
-        return
-
-    photo = message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    image_bytes = bytes(await file.download_as_bytearray())
-
-    score = ocr.extract_score(image_bytes)
-    if score is None:
-        # Doesn't look like a Flashback score screenshot — stay quiet.
-        return
-
-    user = update.effective_user
+async def _offer_score_date_picker(message, user, score: int) -> None:
+    """Ask which pending week a dateless score (from OCR or pasted text) is for."""
     player = db.get_player_by_telegram_id(user.id) if user else None
     if player is None:
         await message.reply_text(
@@ -110,7 +104,7 @@ async def on_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if not sorted_candidates:
         await message.reply_text(
-            f"Encontré un puntaje de {score} puntos en la imagen, pero no "
+            f"Encontré un puntaje de {score} puntos, pero no "
             f"tengo ninguna semana pendiente para {code}. Usá /puntaje "
             f"{code} <fecha DD/MM/YYYY> {score} para cargarlo manualmente."
         )
@@ -129,10 +123,27 @@ async def on_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     buttons.append([InlineKeyboardButton("Cancelar", callback_data=f"flb_cancel:{uid}")])
 
     await message.reply_text(
-        f"Encontré un puntaje de {score} puntos en la imagen para {code}, "
-        "pero la captura no dice la fecha. ¿A qué semana corresponde?",
+        f"Encontré un puntaje de {score} puntos para {code}, pero no dice "
+        "la fecha. ¿A qué semana corresponde?",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
+
+async def on_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if message is None or not message.photo:
+        return
+
+    photo = message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    image_bytes = bytes(await file.download_as_bytearray())
+
+    score = ocr.extract_score(image_bytes)
+    if score is None:
+        # Doesn't look like a Flashback score screenshot — stay quiet.
+        return
+
+    await _offer_score_date_picker(message, update.effective_user, score)
 
 
 async def on_photo_score_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
