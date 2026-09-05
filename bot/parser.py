@@ -11,9 +11,10 @@ FLASHBACK_RE = re.compile(
 
 # Matches the in-app "you scored" summary card, which (unlike the share text
 # above) never states a date — just "this week's Flashback" regardless of
-# which week it actually is.
+# which week it actually is. A perfect score omits the "of {total}" part
+# entirely, e.g. "You scored 28 points, with all 8 events correct".
 FLASHBACK_SCREENSHOT_RE = re.compile(
-    r"scored\s+(?P<score>\d{1,3})\s+of\s+(?P<total>\d{1,3})\s+points",
+    r"scored\s+(?P<score>\d{1,3})(?:\s+of\s+(?P<total>\d{1,3}))?\s+points",
     re.IGNORECASE,
 )
 
